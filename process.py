@@ -10,11 +10,12 @@ from pprint import pprint
 
 import pandas as pd
 
-SOURCE_FILES_FOLDER = '/Users/mszymans/csvs/'
-OUTPUT_FILE = '/Users/mszymans/processed.xlsx'
+SOURCE_FILES_FOLDER = '/Users/mszymanski/csvs/'
+OUTPUT_FILE = '/Users/mszymanski/processed.xlsx'
 
 def convert_time(t):
-    return datetime.datetime.fromtimestamp(float(t)/1000000.0)
+    ''' Converting timestamps to timedeltas '''
+    return datetime.datetime.fromtimestamp(float(t)/1000000.0) - datetime.datetime.fromtimestamp(0.0)
 
 LABEL_MAP = {
     'compensated_duration': {
@@ -98,9 +99,12 @@ def process_data(input_file):
     data = pd.read_csv(
         input_file,
         sep=',',
-        parse_dates=[1, 2, 3, 4, 5, 6, 7, 9, 10, 11, 12, 13],
+        parse_dates=[0, 1, 2, 3, 4, 5, 6, 9, 10, 11, 12, 13],
+        date_parser=convert_time,
     )
-    print(data.start_time)
+    for indx, row in data.iterrows():
+        assert row.end_time - row.start_time == row.duration
+        # print(row)
 
 
 def process_data_file(input_file):
@@ -218,7 +222,7 @@ if __name__ == "__main__":
         labels = []
         TIME_LIMIT = 20
 
-        with open('/Users/mszymans/csvs/' + CSV_INPUT_FILE, newline='') as csvfile:
+        with open('/Users/mszymanski/csvs/' + CSV_INPUT_FILE, newline='') as csvfile:
             process_data(csvfile)
 
         # f1_format = workbook.add_format({'bg_color': 'green'})
