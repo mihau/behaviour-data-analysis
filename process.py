@@ -7,11 +7,16 @@ from dateutil import parser
 import xlsxwriter
 import os
 from pprint import pprint
+import traceback
+from collections import defaultdict
+import numpy as np
 
 import pandas as pd
 
-SOURCE_FILES_FOLDER = '/Users/mszymanski/csvs/'
-OUTPUT_FILE = '/Users/mszymanski/processed.xlsx'
+SUBDIR = "NOR 3 05"
+SOURCE_FILES_FOLDER = '/Users/mszymanski/NOR day 0/'
+OUTPUT_FILE = '/Users/mszymanski/nor_day_0_processed.xlsx'
+OUTPUT_DIRECTORY = '/Users/mszymanski/nor_day_0_fixed/'
 
 def convert_time(t):
     ''' Converting timestamps to timedeltas '''
@@ -80,7 +85,7 @@ LABEL_MAP = {
     }
 }
 
-files_to_process = os.listdir(SOURCE_FILES_FOLDER)[1:]
+files_to_process = os.listdir(SOURCE_FILES_FOLDER)[:]
 workbook = xlsxwriter.Workbook(OUTPUT_FILE)
 header = workbook.add_format({'bold': True, 'border': True})
 
@@ -95,16 +100,115 @@ summary_worksheet.set_column('B:D', 22.0)
 for indx, label in enumerate(['filename', 'object 1 exploration time', 'object 2 exploration time', 'time to reach 20s']):
     summary_worksheet.write_string(0, indx, label, header)
 
-def process_data(input_file):
+def load_data(input_file):
+    """ loads data from a csv file do a pandas DataFrame """
     data = pd.read_csv(
         input_file,
         sep=',',
-        parse_dates=[0, 1, 2, 3, 4, 5, 6, 9, 10, 11, 12, 13],
+        parse_dates=[0, 1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 12, 13],
         date_parser=convert_time,
     )
-    for indx, row in data.iterrows():
-        assert row.end_time - row.start_time == row.duration
-        # print(row)
+
+    return data
+
+def verify_data(data, duration_limit=datetime.timedelta(seconds=20)):
+    """ verify data integrity assuming that only start time and end time of events are correct """
+    start_event = data.ix[0]
+    experiment_start_time = start_event.start_time
+
+    # get the ids of objects appearing in the data
+    object_ids = set(data.object_id.values)  # get the ids of objects
+    object_ids.remove(0)  # excluding 0, which stands for start event
+
+    # defined below are cumulative variables
+    duration_sum = datetime.timedelta(seconds=0)
+    object_duration_sums = defaultdict(datetime.timedelta)
+    
+
+    for indx, event in data.iterrows():
+        # increase the cumulative variables
+        duration_sum += event.end_time - event.start_time
+        object_duration_sums[event.object_id] += event.end_time - event.start_time
+
+        # print(event)
+
+        # print(event)
+        # check if end time is later or same as start time
+        assert event.end_time >= event.start_time
+        # check if the relative start time is correct
+        assert event.relative_start_time == event.start_time - experiment_start_time
+        # check if the relative end time is correct
+        assert event.relative_end_time == event.end_time - experiment_start_time
+        # check if event duration is the difference between the end time and start time
+        assert event.end_time - event.start_time == event.duration
+        # check if duration sum is the sum of all events that have been recorded so far, including the current one
+        # print("event_duration_sum {}".format(event.duration_sum))
+        # print("duration_sum {}".format(duration_sum))
+        assert event.duration_sum == duration_sum
+        # check if object duration sum is equal to the sum of durations of events related to the object with a particular id
+        assert event.object_duration_sum == object_duration_sums[event.object_id]
+        # check if duration overflow is the amount of time for which the event exceeded the duration limit (sepcific to the experiment)
+        assert event.duration_overflow == float(np.heaviside((event.duration_sum - duration_limit).total_seconds(), 0)) * (event.duration_sum - duration_limit)
+        # check if compensated duration is the duration sum minus the duration overflow 
+        # TODO: figure out how skewed are the results
+        assert event.compensated_duration == event.duration - event.duration_overflow
+        # check if compensated end time is the end time minus the duration_overflow
+        if indx != 0:
+            assert event.compensated_end_time == event.end_time - event.duration_overflow
+        # check if compensated relative end time is the relative end time minus the duration overflow
+        assert event.compensated_relative_end_time == event.relative_end_time - event.duration_overflow
+        # check if compensated event duration sum is the event duration sum minus the duration overflow
+        assert event.compensated_event_duration_sum == event.duration_sum - event.duration_overflow
+        # check if compensated object duration sum is the object duration sum minus the duration overfow
+        assert event.compensated_object_duration_sum == event.object_duration_sum - event.duration_overflow
+    
+    # cumulative values assertions
+    assert duration_sum >= duration_limit
+
+
+def fix_data(data, duration_limit=datetime.timedelta(seconds=20)):
+    start_event = data.ix[0]
+    experiment_start_time = start_event.start_time
+
+    # get the ids of objects appearing in the data
+    object_ids = set(data.object_id.values)  # get the ids of objects
+    object_ids.remove(0)  # excluding 0, which stands for start event
+
+    # defined below are cumulative variables
+    duration_sum = datetime.timedelta(seconds=0)
+    object_duration_sums = defaultdict(datetime.timedelta)
+
+    for indx, event in data.iterrows():
+        duration_sum += event.end_time - event.start_time
+        object_duration_sums[event.object_id] += event.end_time - event.start_time
+
+        data.at[indx, 'relative_start_time'] = event.start_time - experiment_start_time
+        data.at[indx, 'relative_end_time'] = event.end_time - experiment_start_time
+        data.at[indx, 'duration'] = event.end_time - event.start_time
+        data.at[indx, 'duration_sum'] = duration_sum
+        data.at[indx, 'object_duration_sum'] = object_duration_sums[event.object_id]
+
+        # print(np.heaviside((event.duration_sum - duration_limit).total_seconds(), 0.0) * (event.duration_sum - duration_limit))
+        # print(type(event.duration))
+        # print(type(float(np.heaviside((event.duration_sum - duration_limit).total_seconds(), 0.0)) * (event.duration_sum - duration_limit)))
+
+        data.at[indx, 'duration_overflow'] = float(np.heaviside((data.at[indx, 'duration_sum'] - duration_limit).total_seconds(), 0.0)) * (data.at[indx, 'duration_sum'] - duration_limit)
+        data.at[indx, 'compensated_duration'] = data.at[indx, 'duration'] - data.at[indx, 'duration_overflow']
+        if indx != 0:
+            data.at[indx, 'compensated_end_time'] = event.end_time - data.at[indx, 'duration_overflow']
+        data.at[indx, 'compensated_relative_end_time'] = data.at[indx, 'relative_end_time'] - data.at[indx, 'duration_overflow']
+        data.at[indx, 'compensated_event_duration_sum'] = data.at[indx, 'duration_sum'] - data.at[indx, 'duration_overflow']
+        data.at[indx, 'compensated_object_duration_sum'] = data.at[indx, 'object_duration_sum'] - data.at[indx, 'duration_overflow']
+    
+    return data
+
+        
+
+
+
+    # for indx, row in data.iterrows():
+    #     assert row.end_time - row.start_time == row.duration
+    #     # print(row)
 
 
 def process_data_file(input_file):
@@ -215,15 +319,37 @@ def process_data_file(input_file):
 
 if __name__ == "__main__":
     # print(files_to_process)
-    for file_indx, input_filename in enumerate(files_to_process[0:1]):
-        print(input_filename)
+    issue_counter = 0
+    for file_indx, input_filename in enumerate(files_to_process[0:]):
+        # print(input_filename)
         # for input_file
         CSV_INPUT_FILE = input_filename
         labels = []
         TIME_LIMIT = 20
 
-        with open('/Users/mszymanski/csvs/' + CSV_INPUT_FILE, newline='') as csvfile:
-            process_data(csvfile)
+
+        with open(SOURCE_FILES_FOLDER + CSV_INPUT_FILE, newline='') as csvfile:
+            data = load_data(csvfile)
+            try:
+                fix_data(data)
+                verify_data(data)
+                # print(csvfile)
+            except Exception as e:
+                issue_counter += 1
+                print("{}".format(input_filename))
+                # verify_data(data)
+                
+                # print("{} failed !".format(csvfile))
+                # traceback.print_exc()
+            
+            # data.to_csv(OUTPUT_DIRECTORY + input_filename)
+
+                # print(e.traceback)
+    print("encountered {} issues".format(issue_counter))        
+
+
+            # print(input_filename + " passed the check")
+            # process_data_file(csvfile)
 
         # f1_format = workbook.add_format({'bg_color': 'green'})
         # worksheet.set_row(f1_1, None, f1_format)
