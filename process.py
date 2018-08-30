@@ -14,13 +14,17 @@ import numpy as np
 import pandas as pd
 
 SUBDIR = "NOR 3 05"
-SOURCE_FILES_FOLDER = '/Users/mszymanski/NOR day 0/'
-OUTPUT_FILE = '/Users/mszymanski/nor_day_0_processed.xlsx'
-OUTPUT_DIRECTORY = '/Users/mszymanski/nor_day_0_fixed/'
+PICKER = 2
+SOURCE_FILES_FOLDER = ['/Users/mszymanski/NOR day 0/', '/Users/mszymanski/NOR 3 05/', '/Users/mszymanski/NOR 9.05 complete/'][PICKER]
+OUTPUT_FILE = ['/Users/mszymanski/nor_day_0_processed.xlsx', '/Users/mszymanski/NOR_3_05_processed.xlsx', '/Users/mszymanski/NOR_9_05.xlsx'][PICKER]
+OUTPUT_DIRECTORY = ['/Users/mszymanski/nor_day_0_fixed/', '/Users/mszymanski/nor_3_05_fixed/', '/Users/mszymanski/nor_9_05_fixed/'][PICKER]
 
 def convert_time(t):
     ''' Converting timestamps to timedeltas '''
     return datetime.datetime.fromtimestamp(float(t)/1000000.0) - datetime.datetime.fromtimestamp(0.0)
+
+def dump_time(t):
+    return t.total_seconds()
 
 LABEL_MAP = {
     'compensated_duration': {
@@ -336,13 +340,13 @@ if __name__ == "__main__":
                 # print(csvfile)
             except Exception as e:
                 issue_counter += 1
-                print("{}".format(input_filename))
+                print("{}:  experiment start at: {} , last_event_ends: {}, reached duration of: {}".format(input_filename, data.at[0, 'start_time'], data['end_time'].max(), data['duration_sum'].max()))
                 # verify_data(data)
                 
                 # print("{} failed !".format(csvfile))
                 # traceback.print_exc()
             
-            # data.to_csv(OUTPUT_DIRECTORY + input_filename)
+            data.to_csv(OUTPUT_DIRECTORY + input_filename, date_format=dump_time)
 
                 # print(e.traceback)
     print("encountered {} issues".format(issue_counter))        
