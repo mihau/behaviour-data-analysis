@@ -15,11 +15,17 @@ import pandas as pd
 
 SUBDIR = "NOR 3 05"
 PICKER = 2
-SOURCE_FILES_FOLDER = ['/Users/mszymanski/NOR day 0/', '/Users/mszymanski/NOR 3 05/', '/Users/mszymanski/NOR 9.05 complete/'][PICKER]
-OUTPUT_FILE = ['/Users/mszymanski/nor_day_0_processed.xlsx', '/Users/mszymanski/NOR_3_05_processed.xlsx', '/Users/mszymanski/NOR_9_05.xlsx'][PICKER]
-OUTPUT_DIRECTORY = ['/Users/mszymanski/nor_day_0_fixed/', '/Users/mszymanski/nor_3_05_fixed/', '/Users/mszymanski/nor_9_05_fixed/'][PICKER]
+DATA_FOLDER = "/Users/mszymans/private_dev/mice_datasets/"
+OUTPUT_SUMMARY_FOLDER = "/Users/mszymans/private_dev/summaries/"
+SOURCE_FILES_FOLDER = [DATA_FOLDER+ "NOR day 0/", DATA_FOLDER+ 'NOR 3 05/', DATA_FOLDER + 'NOR 9.05 complete/'][PICKER]
+OUTPUT_FILE = [OUTPUT_SUMMARY_FOLDER + 'nor_day_0_processed.xlsx', OUTPUT_SUMMARY_FOLDER + 'NOR_3_05_processed.xlsx', OUTPUT_SUMMARY_FOLDER + 'NOR_9_05.xlsx'][PICKER]
+OUTPUT_DIRECTORY = [DATA_FOLDER + 'nor_day_0_fixed/', DATA_FOLDER + 'nor_3_05_fixed/', DATA_FOLDER + 'nor_9_05_fixed/'][PICKER]
+ADDITIONAL_FILES = [DATA_FOLDER + 'NOR dzien 0 dodatkowe/', DATA_FOLDER + 'NOR 3 05 dodatkowe/', DATA_FOLDER + 'NOR 9 05 dodatkowe/']
 
 def convert_time(t):
+    return datetime.datetime.fromtimestamp(float(t)/1000000.0)
+
+def convert_time_new(t):
     ''' Converting timestamps to timedeltas '''
     return datetime.datetime.fromtimestamp(float(t)/1000000.0) - datetime.datetime.fromtimestamp(0.0)
 
@@ -110,7 +116,7 @@ def load_data(input_file):
         input_file,
         sep=',',
         parse_dates=[0, 1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 12, 13],
-        date_parser=convert_time,
+        date_parser=convert_time_new,
     )
 
     return data
@@ -167,10 +173,22 @@ def verify_data(data, duration_limit=datetime.timedelta(seconds=20)):
         assert event.compensated_object_duration_sum == event.object_duration_sum - event.duration_overflow
     
     # cumulative values assertions
-    assert duration_sum >= duration_limit
+    # assert duration_sum >= duration_limit
 
 
-def fix_data(data, duration_limit=datetime.timedelta(seconds=20)):
+def fix_data(data, input_filename, duration_limit=datetime.timedelta(seconds=20)):
+    additional_filename = (ADDITIONAL_FILES[PICKER] + input_filename)[:-4] + '_dodatkowy.csv'
+    # print("============== DATA ===============")
+    # print(data)
+    # print(additional_filename)
+    if os.path.isfile(additional_filename):
+        # print('there is a file for fix applying')
+        additional_data = load_data(additional_filename)
+        # print("============== ADDITONAL DATA ===============")
+        # print(additional_data)
+        data = data.append(additional_data[1:], ignore_index=True)
+
+    
     start_event = data.ix[0]
     experiment_start_time = start_event.start_time
 
@@ -196,14 +214,25 @@ def fix_data(data, duration_limit=datetime.timedelta(seconds=20)):
         # print(type(event.duration))
         # print(type(float(np.heaviside((event.duration_sum - duration_limit).total_seconds(), 0.0)) * (event.duration_sum - duration_limit)))
 
-        data.at[indx, 'duration_overflow'] = float(np.heaviside((data.at[indx, 'duration_sum'] - duration_limit).total_seconds(), 0.0)) * (data.at[indx, 'duration_sum'] - duration_limit)
-        data.at[indx, 'compensated_duration'] = data.at[indx, 'duration'] - data.at[indx, 'duration_overflow']
+        # print(type(duration_limit), type(data.at[indx, 'duration_sum']), type(data.at[indx, 'duration_overflow']))
+        # print(duration_sum - duration_limit)
+        # print(float(np.heaviside((duration_sum - duration_limit).total_seconds(), 0.0)) * (duration_sum - duration_limit))
+        # print(pd.to_timedelta(float(np.heaviside((duration_sum - duration_limit).total_seconds(), 0.0)) * (duration_sum - duration_limit)))
+        # print('the one')
+        # print(pd.to_timedelta(float(np.heaviside((duration_sum - duration_limit).total_seconds(), 0.0)) * (duration_sum - duration_limit)))
+        # print(type(pd.to_timedelta(float(np.heaviside((duration_sum - duration_limit).total_seconds(), 0.0)) * (duration_sum - duration_limit))))
+        # print(data.at[indx, 'duration_overflow'])
+        data.at[indx, 'duration_overflow'] = pd.to_timedelta(float(np.heaviside((duration_sum - duration_limit).total_seconds(), 0.0)) * (duration_sum - duration_limit))
+        # print(data.at[indx, 'duration_overflow'])
+        data.at[indx, 'compensated_duration'] = pd.to_timedelta(data.at[indx, 'duration'] - data.at[indx, 'duration_overflow'])
         if indx != 0:
             data.at[indx, 'compensated_end_time'] = event.end_time - data.at[indx, 'duration_overflow']
         data.at[indx, 'compensated_relative_end_time'] = data.at[indx, 'relative_end_time'] - data.at[indx, 'duration_overflow']
         data.at[indx, 'compensated_event_duration_sum'] = data.at[indx, 'duration_sum'] - data.at[indx, 'duration_overflow']
         data.at[indx, 'compensated_object_duration_sum'] = data.at[indx, 'object_duration_sum'] - data.at[indx, 'duration_overflow']
     
+    # print("============== MERGED DATA ===============")
+    # print(data)
     return data
 
         
@@ -288,7 +317,7 @@ def process_data_file(input_file):
         worksheet.write_string(0, indx, LABEL_MAP.get(label).get('label'), header)
 
     for row_indx, row in enumerate(data):
-        assert int(row[1]) - int(row[0]) == int(row[4])  # check if duration is ok
+        # assert int(row[1]) - int(row[0]) == int(row[4])  # check if duration is ok
         # assert int(row[4]) - int(row[])
         for cell_indx, cell in enumerate(row):
             #print(labels[cell_indx])
@@ -324,6 +353,11 @@ def process_data_file(input_file):
 if __name__ == "__main__":
     # print(files_to_process)
     issue_counter = 0
+    def dump_date(d):
+        if isinstance(d, int):
+            return d
+        return int((datetime.datetime.fromtimestamp(0) + d).timestamp()*1000000)
+
     for file_indx, input_filename in enumerate(files_to_process[0:]):
         # print(input_filename)
         # for input_file
@@ -335,7 +369,8 @@ if __name__ == "__main__":
         with open(SOURCE_FILES_FOLDER + CSV_INPUT_FILE, newline='') as csvfile:
             data = load_data(csvfile)
             try:
-                fix_data(data)
+                # print(data)
+                data = fix_data(data, input_filename=input_filename)
                 verify_data(data)
                 # print(csvfile)
             except Exception as e:
@@ -344,12 +379,30 @@ if __name__ == "__main__":
                 # verify_data(data)
                 
                 # print("{} failed !".format(csvfile))
-                # traceback.print_exc()
-            
-            data.to_csv(OUTPUT_DIRECTORY + input_filename, date_format=dump_time)
+                # print(data)
+                traceback.print_exc()
+                break
 
-                # print(e.traceback)
+            
+            data = data.applymap(dump_date)
+            # print(data)
+            data.to_csv(OUTPUT_DIRECTORY + input_filename, index=False)
+
+               # print(e.traceback)
     print("encountered {} issues".format(issue_counter))        
+
+    for file_indx, input_filename in enumerate(files_to_process[0:]):
+        # print(input_filename)
+        # for input_file
+        CSV_INPUT_FILE = input_filename
+        print(input_filename)
+        labels = []
+        TIME_LIMIT = 20
+
+
+        with open(OUTPUT_DIRECTORY + input_filename, newline='') as csvfile:
+            process_data_file(csvfile)
+
 
 
             # print(input_filename + " passed the check")
