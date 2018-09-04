@@ -10,6 +10,7 @@ from pprint import pprint
 import traceback
 from collections import defaultdict
 import numpy as np
+import click
 
 import pandas as pd
 
@@ -95,20 +96,22 @@ LABEL_MAP = {
     }
 }
 
-files_to_process = os.listdir(SOURCE_FILES_FOLDER)[:]
-workbook = xlsxwriter.Workbook(OUTPUT_FILE)
-header = workbook.add_format({'bold': True, 'border': True})
 
-# class ExplorationEvent(object):
-#     def __init__(self):
+def start():
+    files_to_process = os.listdir(SOURCE_FILES_FOLDER)[:]
+    workbook = xlsxwriter.Workbook(OUTPUT_FILE)
+    header = workbook.add_format({'bold': True, 'border': True})
+
+    # class ExplorationEvent(object):
+    #     def __init__(self):
 
 
-summary_worksheet = workbook.add_worksheet("summary")
-summary_worksheet.set_column('A:A', 30.0)
-summary_worksheet.set_column('B:D', 22.0)
+    summary_worksheet = workbook.add_worksheet("summary")
+    summary_worksheet.set_column('A:A', 30.0)
+    summary_worksheet.set_column('B:D', 22.0)
 
-for indx, label in enumerate(['filename', 'object 1 exploration time', 'object 2 exploration time', 'time to reach 20s']):
-    summary_worksheet.write_string(0, indx, label, header)
+    for indx, label in enumerate(['filename', 'object 1 exploration time', 'object 2 exploration time', 'time to reach 20s']):
+        summary_worksheet.write_string(0, indx, label, header)
 
 def load_data(input_file):
     """ loads data from a csv file do a pandas DataFrame """
@@ -140,9 +143,6 @@ def verify_data(data, duration_limit=datetime.timedelta(seconds=20)):
         duration_sum += event.end_time - event.start_time
         object_duration_sums[event.object_id] += event.end_time - event.start_time
 
-        # print(event)
-
-        # print(event)
         # check if end time is later or same as start time
         assert event.end_time >= event.start_time
         # check if the relative start time is correct
@@ -152,8 +152,6 @@ def verify_data(data, duration_limit=datetime.timedelta(seconds=20)):
         # check if event duration is the difference between the end time and start time
         assert event.end_time - event.start_time == event.duration
         # check if duration sum is the sum of all events that have been recorded so far, including the current one
-        # print("event_duration_sum {}".format(event.duration_sum))
-        # print("duration_sum {}".format(duration_sum))
         assert event.duration_sum == duration_sum
         # check if object duration sum is equal to the sum of durations of events related to the object with a particular id
         assert event.object_duration_sum == object_duration_sums[event.object_id]
@@ -173,19 +171,14 @@ def verify_data(data, duration_limit=datetime.timedelta(seconds=20)):
         assert event.compensated_object_duration_sum == event.object_duration_sum - event.duration_overflow
     
     # cumulative values assertions
+    # TODO: allow for this to fail
     # assert duration_sum >= duration_limit
 
 
 def fix_data(data, input_filename, duration_limit=datetime.timedelta(seconds=20)):
     additional_filename = (ADDITIONAL_FILES[PICKER] + input_filename)[:-4] + '_dodatkowy.csv'
-    # print("============== DATA ===============")
-    # print(data)
-    # print(additional_filename)
     if os.path.isfile(additional_filename):
-        # print('there is a file for fix applying')
         additional_data = load_data(additional_filename)
-        # print("============== ADDITONAL DATA ===============")
-        # print(additional_data)
         data = data.append(additional_data[1:], ignore_index=True)
 
     
@@ -209,21 +202,7 @@ def fix_data(data, input_filename, duration_limit=datetime.timedelta(seconds=20)
         data.at[indx, 'duration'] = event.end_time - event.start_time
         data.at[indx, 'duration_sum'] = duration_sum
         data.at[indx, 'object_duration_sum'] = object_duration_sums[event.object_id]
-
-        # print(np.heaviside((event.duration_sum - duration_limit).total_seconds(), 0.0) * (event.duration_sum - duration_limit))
-        # print(type(event.duration))
-        # print(type(float(np.heaviside((event.duration_sum - duration_limit).total_seconds(), 0.0)) * (event.duration_sum - duration_limit)))
-
-        # print(type(duration_limit), type(data.at[indx, 'duration_sum']), type(data.at[indx, 'duration_overflow']))
-        # print(duration_sum - duration_limit)
-        # print(float(np.heaviside((duration_sum - duration_limit).total_seconds(), 0.0)) * (duration_sum - duration_limit))
-        # print(pd.to_timedelta(float(np.heaviside((duration_sum - duration_limit).total_seconds(), 0.0)) * (duration_sum - duration_limit)))
-        # print('the one')
-        # print(pd.to_timedelta(float(np.heaviside((duration_sum - duration_limit).total_seconds(), 0.0)) * (duration_sum - duration_limit)))
-        # print(type(pd.to_timedelta(float(np.heaviside((duration_sum - duration_limit).total_seconds(), 0.0)) * (duration_sum - duration_limit))))
-        # print(data.at[indx, 'duration_overflow'])
         data.at[indx, 'duration_overflow'] = pd.to_timedelta(float(np.heaviside((duration_sum - duration_limit).total_seconds(), 0.0)) * (duration_sum - duration_limit))
-        # print(data.at[indx, 'duration_overflow'])
         data.at[indx, 'compensated_duration'] = pd.to_timedelta(data.at[indx, 'duration'] - data.at[indx, 'duration_overflow'])
         if indx != 0:
             data.at[indx, 'compensated_end_time'] = event.end_time - data.at[indx, 'duration_overflow']
@@ -231,21 +210,12 @@ def fix_data(data, input_filename, duration_limit=datetime.timedelta(seconds=20)
         data.at[indx, 'compensated_event_duration_sum'] = data.at[indx, 'duration_sum'] - data.at[indx, 'duration_overflow']
         data.at[indx, 'compensated_object_duration_sum'] = data.at[indx, 'object_duration_sum'] - data.at[indx, 'duration_overflow']
     
-    # print("============== MERGED DATA ===============")
-    # print(data)
     return data
 
-        
 
-
-
-    # for indx, row in data.iterrows():
-    #     assert row.end_time - row.start_time == row.duration
-    #     # print(row)
-
-
-def process_data_file(input_file):
-    reader = csv.reader(csvfile, delimiter=',')
+def process_data_file(input_file, workbook, summary_worksheet, file_indx, time_limit, header_format):
+    TIME_LIMIT = time_limit
+    reader = csv.reader(input_file, delimiter=',')
     data = []
     for idx, row in enumerate(reader):
         if idx == 0:
@@ -253,7 +223,7 @@ def process_data_file(input_file):
         else:
             data.append(row)
     # workbook = xlwt.Workbook()
-    worksheet_name = ''.join(CSV_INPUT_FILE.split('.')[0:2])
+    worksheet_name = ''.join(os.path.basename(input_file.name).split('.')[0:2])
     worksheet = workbook.add_worksheet(worksheet_name)
     worksheet.set_column('A:R', 16.0)
 
@@ -307,26 +277,16 @@ def process_data_file(input_file):
     else:
         last_event = f2
 
-
-    # pprint(data)
-
-
-
     # set labels on top of the files   
     for indx, label in enumerate(labels):
-        worksheet.write_string(0, indx, LABEL_MAP.get(label).get('label'), header)
+        worksheet.write_string(0, indx, LABEL_MAP.get(label).get('label'), header_format)
 
     for row_indx, row in enumerate(data):
         # assert int(row[1]) - int(row[0]) == int(row[4])  # check if duration is ok
         # assert int(row[4]) - int(row[])
         for cell_indx, cell in enumerate(row):
-            #print(labels[cell_indx])
             formatter = LABEL_MAP[labels[cell_indx]].get('formatter')
-            #print(cell)
             value = formatter(cell) if formatter is not None else cell
-            #print(type(value))
-            #print(value)
-            #print(row_indx+1, cell_indx)
             if type(value) == datetime.datetime:
                 worksheet.write_datetime(row_indx+1, cell_indx, value, date_format)
             else:
@@ -335,81 +295,93 @@ def process_data_file(input_file):
     object_1_sum = convert_time(data[f1][13])
     object_2_sum = convert_time(data[f2][13])
     last_event_end = convert_time(data[last_event][11])
-    worksheet.write_string(0 ,16 , "object 1 sum", header)
+    worksheet.write_string(0 ,16 , "object 1 sum", header_format)
     worksheet.write_datetime(0, 17, object_1_sum, date_format)
-    worksheet.write_string(1 ,16 , "object 2 sum", header)
+    worksheet.write_string(1 ,16 , "object 2 sum", header_format)
     worksheet.write_datetime(1, 17, object_2_sum, date_format)
-    worksheet.write_string(2 ,  16, "time to reach 20s", header)
+    worksheet.write_string(2 ,  16, "time to reach 20s", header_format)
     worksheet.write_datetime(2 ,  17, last_event_end, date_format)
 
     # assert data[f1][13] + data[f2][13] == TIME_LIMIT * 1000000.0
-    print(data[f1][13] + data[f2][13])
-    summary_worksheet.write_string(1+file_indx, 0, input_filename)
+    summary_worksheet.write_string(1+file_indx, 0, os.path.basename(input_file.name))
     summary_worksheet.write_datetime(1+file_indx, 1, object_1_sum, date_format)
     summary_worksheet.write_datetime(1+file_indx, 2, object_2_sum, date_format)
     summary_worksheet.write_datetime(1+file_indx, 3, last_event_end, date_format)
 
 
-if __name__ == "__main__":
-    # print(files_to_process)
-    issue_counter = 0
-    def dump_date(d):
-        if isinstance(d, int):
-            return d
-        return int((datetime.datetime.fromtimestamp(0) + d).timestamp()*1000000)
 
-    for file_indx, input_filename in enumerate(files_to_process[0:]):
-        # print(input_filename)
-        # for input_file
-        CSV_INPUT_FILE = input_filename
-        labels = []
-        TIME_LIMIT = 20
+# Commands
 
+@click.group()
+def process():
+    pass
 
-        with open(SOURCE_FILES_FOLDER + CSV_INPUT_FILE, newline='') as csvfile:
-            data = load_data(csvfile)
-            try:
-                # print(data)
-                data = fix_data(data, input_filename=input_filename)
-                verify_data(data)
-                # print(csvfile)
-            except Exception as e:
-                issue_counter += 1
-                print("{}:  experiment start at: {} , last_event_ends: {}, reached duration of: {}".format(input_filename, data.at[0, 'start_time'], data['end_time'].max(), data['duration_sum'].max()))
-                # verify_data(data)
-                
-                # print("{} failed !".format(csvfile))
-                # print(data)
-                traceback.print_exc()
-                break
+def _convert_dataset_to_xls(input_folder, output_file):
+    files_to_process = [f for f in os.listdir(input_folder) if not f.startswith('.')]
 
-            
-            data = data.applymap(dump_date)
-            # print(data)
-            data.to_csv(OUTPUT_DIRECTORY + input_filename, index=False)
+    # prepare the excel workbook
+    workbook = xlsxwriter.Workbook(output_file)
+    header = workbook.add_format({'bold': True, 'border': True})
+    summary_worksheet = workbook.add_worksheet("summary")
+    summary_worksheet.set_column('A:A', 30.0)
+    summary_worksheet.set_column('B:D', 22.0)
 
-               # print(e.traceback)
-    print("encountered {} issues".format(issue_counter))        
+    for indx, label in enumerate(['filename', 'object 1 exploration time', 'object 2 exploration time', 'time to reach 20s']):
+        summary_worksheet.write_string(0, indx, label, header)
 
-    for file_indx, input_filename in enumerate(files_to_process[0:]):
-        # print(input_filename)
-        # for input_file
-        CSV_INPUT_FILE = input_filename
-        print(input_filename)
-        labels = []
-        TIME_LIMIT = 20
+    with click.progressbar(files_to_process, label="processing csv files") as bar:
+        for indx, input_filename in enumerate(bar):
+            with open(os.path.join(input_folder, input_filename), newline='') as csvfile:
+                process_data_file(csvfile, workbook, summary_worksheet, file_indx=indx, time_limit=20, header_format=header)
 
-
-        with open(OUTPUT_DIRECTORY + input_filename, newline='') as csvfile:
-            process_data_file(csvfile)
-
-
-
-            # print(input_filename + " passed the check")
-            # process_data_file(csvfile)
-
-        # f1_format = workbook.add_format({'bg_color': 'green'})
-        # worksheet.set_row(f1_1, None, f1_format)
-
-        
     workbook.close()
+
+@process.command()
+@click.argument('input_folder')
+@click.argument('output_file')
+def convert_dataset_to_xls(input_folder, output_file):
+    _convert_dataset_to_xls(input_folder, output_file)
+
+
+if __name__ == "__main__":
+    process()
+
+    # print(files_to_process)
+    # issue_counter = 0
+    # def dump_date(d):
+    #     if isinstance(d, int):
+    #         return d
+    #     return int((datetime.datetime.fromtimestamp(0) + d).timestamp()*1000000)
+
+    # for file_indx, input_filename in enumerate(files_to_process[0:]):
+    #     # print(input_filename)
+    #     # for input_file
+    #     CSV_INPUT_FILE = input_filename
+    #     labels = []
+    #     TIME_LIMIT = 20
+
+
+    #     with open(SOURCE_FILES_FOLDER + CSV_INPUT_FILE, newline='') as csvfile:
+    #         data = load_data(csvfile)
+    #         try:
+    #             # print(data)
+    #             data = fix_data(data, input_filename=input_filename)
+    #             verify_data(data)
+    #             # print(csvfile)
+    #         except Exception as e:
+    #             issue_counter += 1
+    #             print("{}:  experiment start at: {} , last_event_ends: {}, reached duration of: {}".format(input_filename, data.at[0, 'start_time'], data['end_time'].max(), data['duration_sum'].max()))
+    #             # verify_data(data)
+    #             
+    #             # print("{} failed !".format(csvfile))
+    #             # print(data)
+    #             traceback.print_exc()
+    #             break
+
+    #         
+    #         data = data.applymap(dump_date)
+    #         # print(data)
+    #         data.to_csv(OUTPUT_DIRECTORY + input_filename, index=False)
+
+    #            # print(e.traceback)
+    # print("encountered {} issues".format(issue_counter))        
