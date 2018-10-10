@@ -2,3 +2,6 @@ xlwt
 xlsxwriter
 pandas
 click
+py2app
+flask
+gunicorn
